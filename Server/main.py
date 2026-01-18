@@ -15,9 +15,15 @@ rel_to_val = {}
 def load_data():
     global name_to_id, char_to_rels, rel_to_val
     try:
-        Character = pd.read_csv(Data_dir + 'Character_Name_ID.csv', names=['ID','Name','is_available']).dropna()
-        Relations = pd.read_csv(Data_dir + 'Relations.csv', names=['Index', 'Relation_ID', 'Character_ID'])
-        Relation_Value = pd.read_csv(Data_dir + 'Relation_Value.csv', names=['Relation_ID', 'Value'])
+        Character = pd.read_csv(Data_dir + 'Character_Name_ID.csv',
+                                names=['ID','Name','is_available'],
+                                dtype={'ID': int, 'is_available': bool}).dropna()
+        Relations = pd.read_csv(Data_dir + 'Relations.csv',
+                                names=['Index', 'Relation_ID', 'Character_ID'],
+                                dtype={'Relation_ID': int, 'Character_ID': int})
+        Relation_Value = pd.read_csv(Data_dir + 'Relation_Value.csv',
+                                    names=['Relation_ID', 'Value'],
+                                    dtype={'Relation_ID': int, 'Value': int})
 
         name_to_id = Character[Character['is_available'] == 1].set_index('Name')['ID'].to_dict()      
         char_to_rels = Relations.groupby('Character_ID')['Relation_ID'].apply(set).to_dict()
@@ -41,26 +47,25 @@ def get_character_affinity(*character_names) -> int:
 
 def calculate_compatibility(*lineage):
     child, p1, p2, gp1_1, gp1_2, gp2_1, gp2_2 = lineage
-    
-    def get_aff(names):
-        return get_character_affinity(*names)
 
-    aff_p1 = get_aff((child, p1))
-    aff_p2 = get_aff((child, p2))
-    aff_pp = get_aff((p1, p2))
+    aff_pp = get_character_affinity((p1, p2))
+    aff_p1 = get_character_affinity((child, p1))
+    ip1 = aff_p1 + get_character_affinity((p1, gp1_1)) + get_character_affinity((p1, gp1_2)) + aff_pp
+    aff_p2 = get_character_affinity((child, p2))
+    ip2 = aff_p2 + get_character_affinity((p2, gp2_1)) + get_character_affinity((p2, gp2_2)) +aff_pp
     
-    igp1_1 = get_aff((child, p1, gp1_1))
-    igp1_2 = get_aff((child, p1, gp1_2))
-    igp2_1 = get_aff((child, p2, gp2_1))
-    igp2_2 = get_aff((child, p2, gp2_2))
+    igp1_1 = get_character_affinity((child, p1, gp1_1))
+    igp1_2 = get_character_affinity((child, p1, gp1_2))
+    igp2_1 = get_character_affinity((child, p2, gp2_1))
+    igp2_2 = get_character_affinity((child, p2, gp2_2))
 
     return {
-        'P1': int(aff_p1 + igp1_1 + igp1_2 + aff_pp),
-        'P2': int(aff_p2 + igp2_1 + igp2_2 + aff_pp),
-        'GP1_1': int(igp1_1), 'GP1_2': int(igp1_2),
-        'GP2_1': int(igp2_1), 'GP2_2': int(igp2_2),
-        'Total compatibility': int(aff_p1 + aff_p2 + 2*(aff_pp + igp1_1 + igp1_2 + igp2_1 + igp2_2)),
-        'Displayed affinity': int(aff_p1 + aff_p2 + aff_pp + igp1_1 + igp1_2 + igp2_1 + igp2_2),
+        'P1': ip1,
+        'P2': ip2,
+        'GP1_1': igp1_1, 'GP1_2': igp1_2,
+        'GP2_1': igp2_1, 'GP2_2': igp2_2,
+        'Total compatibility': ip1 + ip2 + igp1_1 + igp1_2 + igp2_1 + igp2_2,
+        'Displayed affinity': aff_p1 + aff_p2 + aff_pp + igp1_1 + igp1_2 + igp2_1 + igp2_2,
         'lineage': list(lineage)
     }
 
@@ -79,12 +84,14 @@ def find_optimal_lineage(lineage_names, available_names):
     aff_to_child = {n: get_character_affinity(child_name, n) for n in other_names}
     best_halves = {}
 
+    def gp_aff_score(c,p,gp):
+        return get_character_affinity(c,p,gp) + get_character_affinity(p,gp)
 
     for p in available_parent_names:
         gp_scores = []
         for gp in available_gp_names:
             if gp == p: continue
-            score = get_character_affinity(child_name, p, gp)
+            score = gp_aff_score(child_name,p,gp)
             gp_scores.append((score, gp))
         
         gp_scores.sort(key=lambda x: x[0], reverse=True)
@@ -95,14 +102,6 @@ def find_optimal_lineage(lineage_names, available_names):
     best_total_score = -1
     best_lineage_result = []
 
-    #problem fixed grandparents can be duplicated in a half by being the top gp for a parent
-    #possibilities of failures: 
-    # fixed gp1, top gp is gp1 -> gp1 duplicated
-    # fixed gp1, top2 gp is gp1 -> gp1 swap position
-    # fixed gp1 and gp2, top gp is gp1, top2 gp is gp2 -> gps swap positions
-
-    #CHECK IF FIXED
-
     for p1, p2 in product(available_parent_names, repeat=2):
         if p1 == p2: continue
         if lineage_names[1] and p1 != lineage_names[1]: continue
@@ -112,46 +111,46 @@ def find_optimal_lineage(lineage_names, available_names):
 
         if lineage_names[3] and lineage_names[4]:
             gps_p1 = [lineage_names[3], lineage_names[4]]
-            scores_p1 = [get_character_affinity(child_name,p1,lineage_names[3]),
-                         get_character_affinity(child_name,p1,lineage_names[4])]
+            scores_p1 = [gp_aff_score(child_name,p1,lineage_names[3]),
+                         gp_aff_score(child_name,p1,lineage_names[4])]
         elif lineage_names[3] and (lineage_names[3] != gps_p1[0]):
             if lineage_names[3] == gps_p1[1]:
                 gps_p1[1], gps_p1[0] = gps_p1[0], gps_p1[1]
                 scores_p1[1], scores_p1[0] = scores_p1[0], scores_p1[1]
             else:
                 gps_p1[1] = lineage_names[3]
-                scores_p1[1] = get_character_affinity(child_name,p1,lineage_names[3])
+                scores_p1[1] = gp_aff_score(child_name,p1,lineage_names[3])
         elif lineage_names[4] and (lineage_names[4] != gps_p1[1]):
             if lineage_names[4] == gps_p1[0]:
                 gps_p1[1], gps_p1[0] = gps_p1[0], gps_p1[1]
                 scores_p1[1], scores_p1[0] = scores_p1[0], scores_p1[1]
             else:
                 gps_p1[1] = lineage_names[4]
-                scores_p1[1] = get_character_affinity(child_name,p1,lineage_names[4])
+                scores_p1[1] = gp_aff_score(child_name,p1,lineage_names[4])
 
         scores_p2, gps_p2 = best_halves[p2]
         if lineage_names[5] and lineage_names[6]:
             gps_p2 = [lineage_names[5], lineage_names[6]]
-            scores_p2 = [get_character_affinity(child_name,p2,lineage_names[5]),
-                         get_character_affinity(child_name,p2,lineage_names[6])]
+            scores_p2 = [gp_aff_score(child_name,p2,lineage_names[5]),
+                         gp_aff_score(child_name,p2,lineage_names[6])]
         elif lineage_names[5] and (lineage_names[5] != gps_p2[0]):
             if lineage_names[5] == gps_p2[1]:
                 gps_p2[1], gps_p2[0] = gps_p2[0], gps_p2[1]
                 scores_p2[1], scores_p2[0] = scores_p2[0], scores_p2[1]
             else:
                 gps_p2[1] = lineage_names[5]
-                scores_p2[1] = get_character_affinity(child_name,p2,lineage_names[5])
+                scores_p2[1] = gp_aff_score(child_name,p2,lineage_names[5])
         elif lineage_names[6] and (lineage_names[6] != gps_p2[1]):
             if lineage_names[6] == gps_p2[0]:
                 gps_p2[1], gps_p2[0] = gps_p2[0], gps_p2[1]
                 scores_p2[1], scores_p2[0] = scores_p2[0], scores_p2[1]
             else:
                 gps_p2[1] = lineage_names[6]
-                scores_p2[1] = get_character_affinity(child_name,p2,lineage_names[6])
+                scores_p2[1] = gp_aff_score(child_name,p2,lineage_names[6])
 
         aff_p1_p2 = get_character_affinity(p1, p2)
         
-        current_score = (aff_to_child[p1] + aff_to_child[p2] + 2 * (aff_p1_p2 + sum(scores_p1) + sum(scores_p2)))
+        current_score = aff_to_child[p1] + aff_to_child[p2] + 2 * aff_p1_p2 + sum(scores_p1) + sum(scores_p2)
         
         if current_score > best_total_score:
             best_total_score = current_score
