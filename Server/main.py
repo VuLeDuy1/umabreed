@@ -15,11 +15,11 @@ rel_to_val = {}
 def load_data():
     global name_to_id, char_to_rels, rel_to_val
     try:
-        Character = pd.read_csv(Data_dir + 'Character_Name_ID.csv', names=['Name', 'ID']).dropna()
+        Character = pd.read_csv(Data_dir + 'Character_Name_ID.csv', names=['ID','Name','is_available']).dropna()
         Relations = pd.read_csv(Data_dir + 'Relations.csv', names=['Index', 'Relation_ID', 'Character_ID'])
         Relation_Value = pd.read_csv(Data_dir + 'Relation_Value.csv', names=['Relation_ID', 'Value'])
 
-        name_to_id = Character.set_index('Name')['ID'].to_dict()
+        name_to_id = Character[Character['is_available'] == 1].set_index('Name')['ID'].to_dict()      
         char_to_rels = Relations.groupby('Character_ID')['Relation_ID'].apply(set).to_dict()
         rel_to_val = Relation_Value.set_index('Relation_ID')['Value'].to_dict()
         print("Data loaded successfully.")
