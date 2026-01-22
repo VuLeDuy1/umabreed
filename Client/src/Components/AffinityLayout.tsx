@@ -168,6 +168,65 @@ function CardSlot({
   );
 }
 
+/**
+ * ✅ Affinity tier icon (SVG)
+ *
+ * Put these in:
+ * public/icons/triangle.svg
+ * public/icons/circle.svg
+ * public/icons/double_circle.svg
+ */
+function affinityIconForScore(score: number): string {
+  if (score >= 151) return "/icons/double_circle.svg";
+  if (score >= 51) return "/icons/circle.svg";
+  return "/icons/triangle.svg";
+}
+
+/**
+ * ✅ Enforce "same side" uniqueness rules
+ *
+ * Rules:
+ * - p1 !== p2
+ * - gp1 !== gp2
+ * - gp3 !== gp4
+ * - gp1/gp2 cannot equal p1
+ * - gp3/gp4 cannot equal p2
+ *
+ * This returns a set of IDs that are NOT allowed for the currently active slot.
+ */
+function getDisallowedIdsForSlot(
+  activeSlot: SlotKey,
+  slots: Record<SlotKey, CharacterOption | null>
+): Set<string> {
+  const disallowed = new Set<string>();
+
+  const p1 = slots.p1?.id;
+  const p2 = slots.p2?.id;
+  const gp1 = slots.gp1?.id;
+  const gp2 = slots.gp2?.id;
+  const gp3 = slots.gp3?.id;
+  const gp4 = slots.gp4?.id;
+
+  // P side (horizontal)
+  if (activeSlot === "p1" && p2) disallowed.add(p2);
+  if (activeSlot === "p2" && p1) disallowed.add(p1);
+
+  // GP pairs (horizontal)
+  if (activeSlot === "gp1" && gp2) disallowed.add(gp2);
+  if (activeSlot === "gp2" && gp1) disallowed.add(gp1);
+  if (activeSlot === "gp3" && gp4) disallowed.add(gp4);
+  if (activeSlot === "gp4" && gp3) disallowed.add(gp3);
+
+  // Cross (vertical same side)
+  // gp1/gp2 cannot match p1
+  if ((activeSlot === "gp1" || activeSlot === "gp2") && p1) disallowed.add(p1);
+
+  // gp3/gp4 cannot match p2
+  if ((activeSlot === "gp3" || activeSlot === "gp4") && p2) disallowed.add(p2);
+
+  return disallowed;
+}
+
 export default function AffinityLayout(): React.JSX.Element {
   const [slots, setSlots] = useState<Record<SlotKey, CharacterOption | null>>({
     child: null,
@@ -256,7 +315,12 @@ export default function AffinityLayout(): React.JSX.Element {
         const aff = await fetchAffinity(childName);
 
         const names = sortAffinityKeysDesc(aff);
-        setPickerOptions(names.map(toOption));
+
+        // ✅ Filter out invalid picks for this slot based on same-side rules
+        const disallowed = getDisallowedIdsForSlot(slot, slots);
+        const filteredNames = names.filter((n) => !disallowed.has(n));
+
+        setPickerOptions(filteredNames.map(toOption));
         setPickerScoreById(aff);
         setPickerShowScore(true);
       }
@@ -347,9 +411,6 @@ export default function AffinityLayout(): React.JSX.Element {
   /**
    * ✅ Any time slots change AND a child is present, call /lineage_stats
    * to update metrics + bubble multipliers.
-   *
-   * Note: We intentionally avoid synchronous setState in this effect (eslint rule).
-   * We reset metrics in the child selection handler / reset button instead.
    */
   useEffect(() => {
     const childName = slots.child?.name ?? "";
@@ -490,7 +551,13 @@ export default function AffinityLayout(): React.JSX.Element {
 
         <div className="bottomMid">
           <span className="metric">{displayedAffinity}</span>
-          <span className="dot" />
+
+          <img
+            className="affinityTierIcon"
+            src={affinityIconForScore(displayedAffinity)}
+            alt="Affinity tier"
+            draggable={false}
+          />
         </div>
 
         <div className="bottomMid">
@@ -511,7 +578,6 @@ export default function AffinityLayout(): React.JSX.Element {
           setPickerOpen(false);
 
           if (activeSlot === "child") {
-            // ✅ reset metrics immediately on child change (no effect state resets)
             setDisplayedAffinity(0);
             setTotalCompatibility(0);
             setLineageScores({});
@@ -527,6 +593,13 @@ export default function AffinityLayout(): React.JSX.Element {
               gp3: null,
               gp4: null,
             });
+            return;
+          }
+
+          // ✅ safety net: block invalid pick (should be impossible due to filtering)
+          const disallowed = getDisallowedIdsForSlot(activeSlot, slots);
+          if (disallowed.has(value.id)) {
+            console.warn(`[picker] blocked invalid selection "${value.id}" for slot "${activeSlot}"`);
             return;
           }
 
