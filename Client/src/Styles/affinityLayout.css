@@ -201,7 +201,7 @@ button.slot {
 }
 
 .bottomMid {
-  background: #f2f2f2;
+  background: #222020;
   color: #111;
   height: 100%;
   display: flex;
@@ -217,13 +217,6 @@ button.slot {
 }
 
 .metric--orange { color: #ff8a00; }
-
-.dot {
-  width: clamp(8px, 1.6vmin, 12px);
-  height: clamp(8px, 1.6vmin, 12px);
-  border-radius: 999px;
-  background: #7a2cff;
-}
 
 .bottomRight {
   background: #a9c5f3;
@@ -481,5 +474,12 @@ button.slot {
 /* If any parent is clipping, this helps */
 .charTile {
   overflow: visible;
+}
+.affinityTierIcon {
+  width: 18px;
+  height: 18px;
+  margin-left: 8px;
+  vertical-align: middle;
+  user-select: none;
 }
 

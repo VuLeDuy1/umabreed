@@ -2,18 +2,19 @@ services:
   server:
     build:
       context: ./Server
+    image: lucidlegend/umabreeder-server:latest
     environment:
       FLASK_APP_MODULE: "main:app"
       PORT: "5000"
     ports:
       - "5000:5000"
 
-  # DEV: Vite (HMR, prints URL)
   client-dev:
     profiles: ["dev"]
     build:
       context: ./Client
       dockerfile: Dockerfile.dev
+    image: lucidlegend/umabreeder-client-dev:latest
     ports:
       - "5173:5173"
     environment:
@@ -22,31 +23,25 @@ services:
     depends_on:
       - server
 
-    # Docker Compose Watch
     develop:
       watch:
-        # Sync source changes into container (hot reload)
         - action: sync
           path: ./Client/src
           target: /app/src
-
         - action: sync
           path: ./Client/public
           target: /app/public
-
-        # If deps change, rebuild image (npm ci reruns)
         - action: rebuild
           path: ./Client/package.json
-
         - action: rebuild
           path: ./Client/package-lock.json
 
-  # PROD: Nginx (serves built /dist)
   client-prod:
     profiles: ["prod"]
     build:
       context: ./Client
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.prod
+    image: lucidlegend/umabreeder-client:latest
     ports:
       - "5173:80"
     depends_on:
