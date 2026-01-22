@@ -82,7 +82,7 @@ def find_optimal_lineage(lineage_names, available_names):
     if len(other_names) < 2: # Need 2
         return {"error": "Not enough characters available"}
 
-    aff_to_child = {n: get_character_affinity(child_name, n) for n in other_names}
+    aff_to_child = {n: get_character_affinity(child_name, n) for n in available_parent_names}
     best_halves = {}
 
     def gp_aff_score(c,p,gp):
