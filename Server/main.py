@@ -47,6 +47,8 @@ def get_character_affinity(*character_names) -> int:
     return result
 
 def calculate_compatibility(*lineage):
+    if lineage is None:
+        return None
     child, p1, p2, gp1_1, gp1_2, gp2_1, gp2_2 = lineage
 
     aff_pp = get_character_affinity(p1, p2)
@@ -71,93 +73,135 @@ def calculate_compatibility(*lineage):
     }
 
 def find_optimal_lineage(lineage_names, available_names):
-    child_name = lineage_names[0]
-    fixed_parents = [ p for p in lineage_names[1:3] if p]
-    fixed_gps = [ gp for gp in lineage_names[3:] if gp]
+    def find_optimal_lineage_for_child(lineage_names, available_names):
+        child_name = lineage_names[0]
+        fixed_parents = lineage_names[1:3]
+        fixed_gps = lineage_names[3:7]
 
-    other_names = [n for n in available_names if n != child_name]
-    available_parent_names = set(other_names + fixed_parents)
-    available_gp_names = set(other_names + fixed_gps)
+        parent_names = set(available_names + fixed_parents) - {child_name,None}
+        gp_names = set(available_names + fixed_gps) - {None}
 
-    if len(other_names) < 2: # Need 2
-        return {"error": "Not enough characters available"}
+        p1_names = set([fixed_parents[0]]) if fixed_parents[0] else parent_names
+        p2_names = set([fixed_parents[1]]) if fixed_parents[1] else parent_names
 
-    aff_to_child = {n: get_character_affinity(child_name, n) for n in available_parent_names}
-    best_halves = {}
+        p1p2_names = p1_names | p2_names
 
-    def gp_aff_score(c,p,gp):
-        return get_character_affinity(c,p,gp) + get_character_affinity(p,gp)
+        aff_to_child = {n: get_character_affinity(child_name, n) for n in p1p2_names}
+        best_halves = {}
 
-    for p in available_parent_names:
-        gp_scores = []
-        for gp in available_gp_names:
-            if gp == p: continue
-            score = gp_aff_score(child_name,p,gp)
-            gp_scores.append((score, gp))
+        def gp_aff_score(c,p,gp):
+            return get_character_affinity(c,p,gp) + get_character_affinity(p,gp)
+
+        for p in p1p2_names:
+            gp_scores = []
+            for gp in gp_names:
+                if gp == p: continue
+                score = gp_aff_score(child_name,p,gp)
+                gp_scores.append((score, gp))
+            
+            if len(gp_scores) < 2: continue
+
+            gp_scores.sort(key=lambda x: x[0], reverse=True)
+            top_score = [s for s, name in gp_scores[:2]]
+            top_gps = [name for s, name in gp_scores[:2]]
+            best_halves[p] = (top_score, top_gps)
+
+
+        def build_halves(child_name, p_names, gp1, gp2, best_halves):
+            def apply_fixed_gp(p, fixed_gp, preferred_index, half):
+                scores, gps = half
+                assert len(scores) == 2 and len(gps) == 2
+
+                if fixed_gp == gps[preferred_index]:
+                    return half
+
+                if fixed_gp == gps[1 - preferred_index]:
+                    return (scores[::-1], gps[::-1])
+
+                # fixed_gp not present at all
+                new_scores = list(scores)
+                new_gps = list(gps)
+
+                new_scores[preferred_index] = gp_aff_score(child_name, p, fixed_gp)
+                new_gps[preferred_index] = fixed_gp
+
+                return new_scores, new_gps
+
+            halves = {}
+            if gp1 and gp2:
+                for p in p_names - {gp1, gp2}:
+                    halves[p] = (
+                        [
+                            gp_aff_score(child_name, p, gp1),
+                            gp_aff_score(child_name, p, gp2),
+                        ],
+                        [gp1,gp2]
+                    )
+
+            elif gp1:
+                for p in p_names - {gp1}:
+                    halves[p] = apply_fixed_gp(p,gp1,preferred_index=0,half=best_halves[p])
+
+            elif gp2:
+                for p in p_names - {gp2}:
+                    halves[p] = apply_fixed_gp(p,gp2,preferred_index=1,half=best_halves[p])
+
+            else:
+                return dict(best_halves)
+
+            return halves
+
+        halves1 = build_halves(child_name,p1_names,fixed_gps[0],fixed_gps[1],best_halves)
+        halves2 = build_halves(child_name,p2_names,fixed_gps[2],fixed_gps[3],best_halves)
+
+        best_total_score = -1
+
+        best_lineage_result = None
+
+        for p1, p2 in product(p1_names,p2_names):
+            if p1 == p2: continue
+
+            half1 = halves1.get(p1,None)
+            half2 = halves2.get(p2,None)
+            if half1 is None or half2 is None: continue
+
+            scores_p1, gps_p1 = half1
+            scores_p2, gps_p2 = half2
+
+            aff_p1_p2 = get_character_affinity(p1, p2)
+            
+            current_score = aff_to_child[p1] + aff_to_child[p2] + 2 * aff_p1_p2 + sum(scores_p1) + sum(scores_p2)
+            
+            if current_score > best_total_score:
+                best_total_score = current_score
+                best_lineage_result = (child_name, p1, p2, gps_p1[0], gps_p1[1], gps_p2[0], gps_p2[1])
+
+        if best_lineage_result is None:
+            # print("No possible lineage configuration. Character filter too narrow")
+            return None
+        return calculate_compatibility(*best_lineage_result)
+
+    if lineage_names is None:
+        return None
+    if len(lineage_names)!=7:
+        return None
+    if lineage_names[0]:
+        return find_optimal_lineage_for_child(lineage_names, available_names)
+    
+
+    fixed_parents = {n for n in lineage_names[1:3] if n is not None}
+    best_score = -1
+    best_lineage = None
+    for c in set(available_names) - fixed_parents:
+        partial_lineage = [c] + lineage_names[1:7]
+        result = find_optimal_lineage_for_child(partial_lineage, available_names)
         
-        gp_scores.sort(key=lambda x: x[0], reverse=True)
-        top_score = [s for s, name in gp_scores[:2]]
-        top_gps = [name for s, name in gp_scores[:2]]
-        best_halves[p] = (top_score, top_gps)
+        if result is None: continue
 
-    best_total_score = -1
-    best_lineage_result = []
-
-    for p1, p2 in product(available_parent_names, repeat=2):
-        if p1 == p2: continue
-        if lineage_names[1] and p1 != lineage_names[1]: continue
-        if lineage_names[2] and p2 != lineage_names[2]: continue
-
-        scores_p1, gps_p1 = best_halves[p1]
-
-        if lineage_names[3] and lineage_names[4]:
-            gps_p1 = [lineage_names[3], lineage_names[4]]
-            scores_p1 = [gp_aff_score(child_name,p1,lineage_names[3]),
-                         gp_aff_score(child_name,p1,lineage_names[4])]
-        elif lineage_names[3] and (lineage_names[3] != gps_p1[0]):
-            if lineage_names[3] == gps_p1[1]:
-                gps_p1[1], gps_p1[0] = gps_p1[0], gps_p1[1]
-                scores_p1[1], scores_p1[0] = scores_p1[0], scores_p1[1]
-            else:
-                gps_p1[1] = lineage_names[3]
-                scores_p1[1] = gp_aff_score(child_name,p1,lineage_names[3])
-        elif lineage_names[4] and (lineage_names[4] != gps_p1[1]):
-            if lineage_names[4] == gps_p1[0]:
-                gps_p1[1], gps_p1[0] = gps_p1[0], gps_p1[1]
-                scores_p1[1], scores_p1[0] = scores_p1[0], scores_p1[1]
-            else:
-                gps_p1[1] = lineage_names[4]
-                scores_p1[1] = gp_aff_score(child_name,p1,lineage_names[4])
-
-        scores_p2, gps_p2 = best_halves[p2]
-        if lineage_names[5] and lineage_names[6]:
-            gps_p2 = [lineage_names[5], lineage_names[6]]
-            scores_p2 = [gp_aff_score(child_name,p2,lineage_names[5]),
-                         gp_aff_score(child_name,p2,lineage_names[6])]
-        elif lineage_names[5] and (lineage_names[5] != gps_p2[0]):
-            if lineage_names[5] == gps_p2[1]:
-                gps_p2[1], gps_p2[0] = gps_p2[0], gps_p2[1]
-                scores_p2[1], scores_p2[0] = scores_p2[0], scores_p2[1]
-            else:
-                gps_p2[1] = lineage_names[5]
-                scores_p2[1] = gp_aff_score(child_name,p2,lineage_names[5])
-        elif lineage_names[6] and (lineage_names[6] != gps_p2[1]):
-            if lineage_names[6] == gps_p2[0]:
-                gps_p2[1], gps_p2[0] = gps_p2[0], gps_p2[1]
-                scores_p2[1], scores_p2[0] = scores_p2[0], scores_p2[1]
-            else:
-                gps_p2[1] = lineage_names[6]
-                scores_p2[1] = gp_aff_score(child_name,p2,lineage_names[6])
-
-        aff_p1_p2 = get_character_affinity(p1, p2)
-        
-        current_score = aff_to_child[p1] + aff_to_child[p2] + 2 * aff_p1_p2 + sum(scores_p1) + sum(scores_p2)
-        
-        if current_score > best_total_score:
-            best_total_score = current_score
-            best_lineage_result = (child_name, p1, p2, gps_p1[0], gps_p1[1], gps_p2[0], gps_p2[1])
-
-    return calculate_compatibility(*best_lineage_result)
+        if result['Total compatibility'] > best_score:
+            best_score = result['Total compatibility']
+            best_lineage = result['lineage']
+    return calculate_compatibility(*best_lineage)
 
 # --- API ENDPOINTS ---
 
