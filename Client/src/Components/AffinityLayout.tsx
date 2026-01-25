@@ -176,7 +176,7 @@ function CardSlot({
  * public/icons/circle.svg
  * public/icons/double_circle.svg
  */
-function affinityIconForScore(score: number): string {
+function affinityIconForScore(score: number =0): string {
   if (score >= 151) return "/icons/double_circle.svg";
   if (score >= 51) return "/icons/circle.svg";
   return "/icons/triangle.svg";
